@@ -1,0 +1,31 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: #0f1115; color: #e6e6e6; }
+a { color: #6ea8fe; }
+button, input, select, textarea {
+  font: inherit; color: inherit;
+  background: #1a1d24; border: 1px solid #2a2f3a; border-radius: 6px; padding: 6px 10px;
+}
+button { cursor: pointer; }
+button:hover { background: #232833; }
+.container { max-width: 900px; margin: 0 auto; padding: 24px; }
+.row { display: flex; gap: 8px; align-items: center; }
+.muted { color: #8a93a6; font-size: 12px; }
+.tag { background: #2a2f3a; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin-right: 4px; }
+.task {
+  display: flex; gap: 12px; align-items: center;
+  padding: 10px 12px; background: #161922; border: 1px solid #232833;
+  border-radius: 8px; margin-bottom: 6px; cursor: grab;
+}
+.task.dragging { opacity: 0.4; }
+.task.over { border-color: #6ea8fe; }
+.status-todo    { color: #c7c7c7; }
+.status-doing   { color: #ffd166; }
+.status-done    { color: #06d6a0; }
+.status-blocked { color: #ef476f; }
+.title { font-weight: 500; }
+.spec  { color: #b388ff; font-size: 11px; }
+.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
+.modal { background: #161922; border: 1px solid #2a2f3a; border-radius: 10px; padding: 20px; min-width: 480px; max-width: 90vw; }
+label { display: block; font-size: 12px; color: #8a93a6; margin-top: 10px; }
+input[type=text], textarea, select { width: 100%; }
+textarea { min-height: 80px; resize: vertical; font-family: ui-monospace, monospace; font-size: 12px; }
