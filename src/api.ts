@@ -39,7 +39,7 @@ api.get("/tasks/:id", (c) => {
 api.post("/tasks", async (c) => {
   const body = await c.req.json();
   if (!body?.title) return c.json({ error: "title required" }, 400);
-  if (body.status && !isStatus(body.status)) return c.json({ error: "bad status" }, 400);
+  if (body.status !== undefined && !isStatus(body.status)) return c.json({ error: "bad status" }, 400);
   const t = createTask(body);
   return c.json(t, 201);
 });
@@ -47,7 +47,7 @@ api.post("/tasks", async (c) => {
 api.patch("/tasks/:id", async (c) => {
   const id = Number(c.req.param("id"));
   const body = await c.req.json();
-  if (body.status && !isStatus(body.status)) return c.json({ error: "bad status" }, 400);
+  if (body.status !== undefined && !isStatus(body.status)) return c.json({ error: "bad status" }, 400);
   const t = updateTask(id, body);
   if (!t) return c.json({ error: "not found" }, 404);
   return c.json(t);
