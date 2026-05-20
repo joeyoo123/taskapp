@@ -1,35 +1,36 @@
 #!/usr/bin/env node
-import { Server } from "@modelcontextprotocol/sdk/server/index";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types";
+} from "@modelcontextprotocol/sdk/types.js";
 import {
   completeTask,
   createTask,
   getAgentQueue,
+  isPriority,
   isStatus,
   listTasks,
   updateTask,
-} from "./lib/tasks";
-import type { Status } from "./db/schema";
+} from "../lib/api/tasks";
 
 const server = new Server(
-  { name: "taskapp", version: "0.1.0" },
+  { name: "taskapp", version: "0.2.0" },
   { capabilities: { tools: {} } },
 );
 
 const tools = [
   {
     name: "list_tasks",
-    description: "List tasks with optional filters.",
+    description: "List tasks. Filter by status, list, tag, or whether they have an agent_spec.",
     inputSchema: {
       type: "object",
       properties: {
-        status: { type: "string", enum: ["todo", "doing", "done", "blocked"] },
+        status: { type: "string", enum: ["Open", "In Progress", "Review", "Closed"] },
+        list: { type: "string", description: "list id" },
         tag: { type: "string" },
-        search: { type: "string" },
+        has_agent_spec: { type: "boolean" },
       },
     },
   },
@@ -38,14 +39,17 @@ const tools = [
     description: "Create a new task.",
     inputSchema: {
       type: "object",
-      required: ["title"],
+      required: ["listId", "title"],
       properties: {
+        listId: { type: "string" },
         title: { type: "string" },
         description: { type: "string" },
-        status: { type: "string", enum: ["todo", "doing", "done", "blocked"] },
-        priority: { type: "number" },
+        status: { type: "string", enum: ["Open", "In Progress", "Review", "Closed"] },
+        priority: { type: "string", enum: ["urgent", "high", "normal", "low"] },
+        assigneeId: { type: "string" },
+        dueDate: { type: "string", description: "ISO date YYYY-MM-DD" },
         tags: { type: "array", items: { type: "string" } },
-        dueDate: { type: "string", description: "ISO date" },
+        parentTaskId: { type: "string" },
         agentSpec: {
           type: "object",
           properties: {
@@ -65,29 +69,30 @@ const tools = [
       type: "object",
       required: ["id"],
       properties: {
-        id: { type: "number" },
+        id: { type: "string" },
         title: { type: "string" },
         description: { type: "string" },
-        status: { type: "string", enum: ["todo", "doing", "done", "blocked"] },
-        priority: { type: "number" },
+        status: { type: "string", enum: ["Open", "In Progress", "Review", "Closed"] },
+        priority: { type: "string", enum: ["urgent", "high", "normal", "low"] },
+        assigneeId: { type: ["string", "null"] },
+        dueDate: { type: ["string", "null"] },
         tags: { type: "array", items: { type: "string" } },
-        dueDate: { type: "string" },
         agentSpec: { type: ["object", "null"] },
       },
     },
   },
   {
     name: "complete_task",
-    description: "Mark a task as done.",
+    description: "Mark a task as Closed.",
     inputSchema: {
       type: "object",
       required: ["id"],
-      properties: { id: { type: "number" } },
+      properties: { id: { type: "string" } },
     },
   },
   {
     name: "get_agent_queue",
-    description: "List todo tasks that have an agent_spec attached.",
+    description: "List Open tasks that have a non-null agent_spec.",
     inputSchema: { type: "object", properties: {} },
   },
 ];
@@ -102,30 +107,36 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       case "list_tasks": {
         if (a.status !== undefined && !isStatus(a.status)) throw new Error("bad status");
         const rows = listTasks({
-          status: a.status as Status | undefined,
+          status: a.status as never,
+          listId: typeof a.list === "string" ? a.list : undefined,
           tag: typeof a.tag === "string" ? a.tag : undefined,
-          search: typeof a.search === "string" ? a.search : undefined,
+          hasAgentSpec: a.has_agent_spec === true,
         });
         return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
       }
       case "create_task": {
         if (!a.title || typeof a.title !== "string") throw new Error("title required");
+        if (!a.listId || typeof a.listId !== "string") throw new Error("listId required");
+        if (a.status !== undefined && !isStatus(a.status)) throw new Error("bad status");
+        if (a.priority !== undefined && !isPriority(a.priority)) throw new Error("bad priority");
         const t = createTask(a as never);
         return { content: [{ type: "text", text: JSON.stringify(t, null, 2) }] };
       }
       case "update_task": {
-        const id = Number(a.id);
-        if (!Number.isFinite(id)) throw new Error("id required");
+        const id = a.id;
+        if (typeof id !== "string") throw new Error("id required");
+        if (a.status !== undefined && !isStatus(a.status)) throw new Error("bad status");
+        if (a.priority !== undefined && !isPriority(a.priority)) throw new Error("bad priority");
         const { id: _omit, ...rest } = a;
         const t = updateTask(id, rest as never);
-        if (!t) throw new Error(`no task #${id}`);
+        if (!t) throw new Error(`no task ${id}`);
         return { content: [{ type: "text", text: JSON.stringify(t, null, 2) }] };
       }
       case "complete_task": {
-        const id = Number(a.id);
-        if (!Number.isFinite(id)) throw new Error("id required");
+        const id = a.id;
+        if (typeof id !== "string") throw new Error("id required");
         const t = completeTask(id);
-        if (!t) throw new Error(`no task #${id}`);
+        if (!t) throw new Error(`no task ${id}`);
         return { content: [{ type: "text", text: JSON.stringify(t, null, 2) }] };
       }
       case "get_agent_queue": {
