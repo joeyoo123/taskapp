@@ -1,5 +1,8 @@
 import { handle } from "hono/vercel";
-import { api } from "@/api";
+import { api } from "@/lib/api/server";
+import { seed } from "@/lib/db/seed";
+
+seed();
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

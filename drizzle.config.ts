@@ -1,10 +1,8 @@
 import type { Config } from "drizzle-kit";
 
 export default {
-  schema: "./src/db/schema.ts",
+  schema: "./lib/db/schema.ts",
   out: "./drizzle",
   dialect: "sqlite",
-  dbCredentials: {
-    url: process.env.TASKAPP_DB ?? "./tasks.db",
-  },
+  dbCredentials: { url: process.env.TASKAPP_DB ?? "./tasks.db" },
 } satisfies Config;

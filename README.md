@@ -1,104 +1,80 @@
 # taskapp
 
-A local task management system: SQLite storage, CLI, minimal Next.js web UI, and an MCP (stdio) server. TypeScript + Drizzle + Hono.
+A ClickUp-style local task manager. Three-pane layout, dense list view, board view, slide-in detail drawer, MCP server.
 
-## Schema
+**Stack:** Next.js 15 (App Router), TypeScript, Tailwind, shadcn-style primitives on Radix, Drizzle ORM + SQLite (better-sqlite3), Zustand, dnd-kit, Tiptap, Framer Motion, Lucide, Sonner, date-fns, Hono (API), `@modelcontextprotocol/sdk` (MCP stdio).
 
-`tasks(id, title, description, status, priority, tags, due_date, created_at, agent_spec)`
-
-- `status`: `todo | doing | done | blocked`
-- `agent_spec` (optional JSON): `{ tool, inputs, approval_required, success_criteria }` — describes how an AI agent should execute the task.
-
-The DB file is `./tasks.db` by default. Override with `TASKAPP_DB=/path/to.db`.
-
-## Install
+## Run locally
 
 ```sh
 npm install
-```
-
-The schema is created automatically on first DB open. You can also run:
-
-```sh
-npm run db:migrate
-```
-
-## CLI
-
-```sh
-npm run cli -- add "Write docs" --description "..." --priority 5 --tags docs,writing --due 2026-06-01
-npm run cli -- add "Run nightly build" --agent-spec '{"tool":"shell","inputs":{"cmd":"npm test"},"approval_required":true,"success_criteria":"exit code 0"}'
-npm run cli -- list
-npm run cli -- list --status todo --tag docs
-npm run cli -- edit 3 --status doing --priority 10
-npm run cli -- done 3
-npm run cli -- agent-queue
-npm run cli -- show 3
-```
-
-To install as `task` globally: `npm link` after building (`tsc` not used here — use `tsx` directly or wrap with your packager of choice).
-
-## Web UI
-
-```sh
 npm run dev
 # open http://localhost:3000
 ```
 
-Features: list view, status/tag/search filters, click-to-edit modal, drag rows to reorder priority.
+The DB (`./tasks.db`) is auto-bootstrapped on first request, and a seed of two spaces / one folder / five lists / ~15 tasks runs the first time so the UI isn't empty.
 
-## API (Hono, mounted at `/api`)
+Override the DB path with `TASKAPP_DB=/abs/path.db` so the web UI and MCP server share one store.
 
-- `GET    /api/tasks?status=&tag=&search=`
-- `GET    /api/tasks/agent-queue`
-- `GET    /api/tasks/:id`
-- `POST   /api/tasks`        body: `{ title, description?, status?, priority?, tags?, dueDate?, agentSpec? }`
-- `PATCH  /api/tasks/:id`    body: any subset of the above
-- `DELETE /api/tasks/:id`
-- `POST   /api/tasks/reorder` body: `{ ids: number[] }` — top of list = highest priority
+## Keyboard shortcuts
+
+- `c` — create a task in the active list (opens the drawer)
+- `/` — focus the search box
+- `Esc` — close the drawer
+
+## Schema
+
+`spaces → folders → lists → tasks` (folders are optional). Tasks fields:
+
+`id, list_id, parent_task_id, title, description, status, priority, assignee_id, due_date, tags, agent_spec, position, created_at, updated_at`
+
+- `status`: `Open | In Progress | Review | Closed`
+- `priority`: `urgent | high | normal | low`
+- `agent_spec` (nullable JSON): `{ tool, inputs, approval_required, success_criteria }`
 
 ## MCP server
 
-Stdio server exposing: `list_tasks`, `create_task`, `update_task`, `complete_task`, `get_agent_queue`.
-
-```sh
-npm run mcp
-```
+Stdio server in `mcp-server/index.ts`. Tools: `list_tasks`, `create_task`, `update_task`, `complete_task`, `get_agent_queue`.
 
 ### Add to Claude Code
 
-Use the Claude Code CLI:
-
 ```sh
-claude mcp add taskapp -- npx -y tsx /absolute/path/to/taskapp/src/mcp.ts
+claude mcp add taskapp -- npx -y tsx /absolute/path/to/taskapp/mcp-server/index.ts
 ```
 
-Or edit `~/.claude.json` / `~/.config/claude/mcp.json` (depending on platform) and add:
+Or edit `~/.claude.json`:
 
 ```json
 {
   "mcpServers": {
     "taskapp": {
       "command": "npx",
-      "args": ["-y", "tsx", "/absolute/path/to/taskapp/src/mcp.ts"],
+      "args": ["-y", "tsx", "/absolute/path/to/taskapp/mcp-server/index.ts"],
       "env": { "TASKAPP_DB": "/absolute/path/to/taskapp/tasks.db" }
     }
   }
 }
 ```
 
-Restart Claude Code. Then ask it things like "list my tasks" or "queue an agent task to run the test suite tonight" and the model will call the tools.
+Restart Claude Code, run `/mcp`, confirm the five tools appear.
 
 ## Layout
 
 ```
-src/
-  db/{schema,client,migrate}.ts   drizzle schema + SQLite client
-  lib/tasks.ts                    shared task ops (CLI/API/MCP)
-  cli.ts                          CLI entry
-  api.ts                          Hono routes
-  mcp.ts                          MCP stdio server
-app/
+app/                            Next.js app router
   layout.tsx, page.tsx, globals.css
-  api/[[...route]]/route.ts       mounts Hono inside Next.js
+  api/[[...route]]/route.ts     mounts Hono inside Next.js
+components/
+  layout/{sidebar,topbar}.tsx   3-pane shell
+  list-view/list-view.tsx       table, grouped by status, inline editing, dnd
+  board-view/board.tsx          kanban with cross-column dnd
+  drawer/                       detail drawer (Tiptap + agent spec form)
+  ui/                           Radix-backed primitives
+  task-bits.tsx                 priority flag, status pill, assignee picker, due date
+lib/
+  db/{schema,client,seed}.ts    Drizzle + SQLite + idempotent seed
+  api/{tasks,hierarchy,server}.ts  shared ops + Hono routes
+  store.ts                      Zustand
+  utils.ts                      cn()
+mcp-server/index.ts             stdio MCP server
 ```

@@ -1,251 +1,96 @@
 "use client";
-
-import { useCallback, useEffect, useRef, useState } from "react";
-
-type Status = "todo" | "doing" | "done" | "blocked";
-
-type AgentSpec = {
-  tool: string;
-  inputs: Record<string, unknown>;
-  approval_required: boolean;
-  success_criteria: string;
-};
-
-type Task = {
-  id: number;
-  title: string;
-  description: string;
-  status: Status;
-  priority: number;
-  tags: string[];
-  dueDate: string | null;
-  createdAt: string;
-  agentSpec: AgentSpec | null;
-};
-
-const STATUSES: Status[] = ["todo", "doing", "done", "blocked"];
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json() as Promise<T>;
-}
+import * as React from "react";
+import { toast } from "sonner";
+import { useStore, apiCall } from "@/lib/store";
+import { Sidebar } from "@/components/layout/sidebar";
+import { TopBar } from "@/components/layout/topbar";
+import { ListView } from "@/components/list-view/list-view";
+import { BoardView } from "@/components/board-view/board";
+import { TaskDrawer } from "@/components/drawer/task-drawer";
+import { Skeleton } from "@/components/ui/skeleton";
+import type { Task } from "@/lib/db/schema";
 
 export default function Page() {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [statusFilter, setStatusFilter] = useState<Status | "">("");
-  const [tagFilter, setTagFilter] = useState("");
-  const [search, setSearch] = useState("");
-  const [editing, setEditing] = useState<Task | null>(null);
-  const [creating, setCreating] = useState(false);
+  const {
+    bootstrapped, bootstrap, view, activeListId, upsertTask, openTaskId, setOpenTaskId,
+  } = useStore();
 
-  const load = useCallback(async () => {
-    const params = new URLSearchParams();
-    if (statusFilter) params.set("status", statusFilter);
-    if (tagFilter) params.set("tag", tagFilter);
-    if (search) params.set("search", search);
-    const qs = params.toString();
-    const rows = await api<Task[]>(`/api/tasks${qs ? `?${qs}` : ""}`);
-    setTasks(rows);
-  }, [statusFilter, tagFilter, search]);
+  React.useEffect(() => {
+    void bootstrap();
+  }, [bootstrap]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // Keyboard shortcuts
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const target = e.target as HTMLElement;
+      const inEditable =
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable;
+      if (inEditable) return;
 
-  const dragId = useRef<number | null>(null);
-  const [overId, setOverId] = useState<number | null>(null);
-
-  const onDragStart = (id: number) => () => {
-    dragId.current = id;
-  };
-  const onDragOver = (id: number) => (e: React.DragEvent) => {
-    e.preventDefault();
-    setOverId(id);
-  };
-  const onDrop = (id: number) => async (e: React.DragEvent) => {
-    e.preventDefault();
-    const from = dragId.current;
-    setOverId(null);
-    dragId.current = null;
-    if (from == null || from === id) return;
-    const fromIdx = tasks.findIndex((t) => t.id === from);
-    const toIdx = tasks.findIndex((t) => t.id === id);
-    if (fromIdx < 0 || toIdx < 0) return;
-    const next = tasks.slice();
-    const [moved] = next.splice(fromIdx, 1);
-    next.splice(toIdx, 0, moved);
-    setTasks(next);
-    await api("/api/tasks/reorder", {
-      method: "POST",
-      body: JSON.stringify({ ids: next.map((t) => t.id) }),
-    });
-    await load();
-  };
-
-  return (
-    <div className="container">
-      <h1>taskapp</h1>
-
-      <div className="row" style={{ marginBottom: 16, flexWrap: "wrap" }}>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as Status | "")}>
-          <option value="">all statuses</option>
-          {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <input
-          type="text" placeholder="filter by tag"
-          value={tagFilter} onChange={(e) => setTagFilter(e.target.value)}
-        />
-        <input
-          type="text" placeholder="search title/desc"
-          value={search} onChange={(e) => setSearch(e.target.value)}
-        />
-        <button onClick={() => setCreating(true)}>+ new task</button>
-      </div>
-
-      {tasks.length === 0 ? (
-        <p className="muted">No tasks. Create one to get started.</p>
-      ) : (
-        tasks.map((t) => (
-          <div
-            key={t.id}
-            className={`task ${overId === t.id ? "over" : ""}`}
-            draggable
-            onDragStart={onDragStart(t.id)}
-            onDragOver={onDragOver(t.id)}
-            onDrop={onDrop(t.id)}
-            onClick={(e) => {
-              if ((e.target as HTMLElement).tagName === "BUTTON") return;
-              setEditing(t);
-            }}
-          >
-            <span className="muted" style={{ width: 36 }}>#{t.id}</span>
-            <span className={`status-${t.status}`} style={{ width: 64 }}>{t.status}</span>
-            <span className="muted" style={{ width: 36 }}>p{t.priority}</span>
-            <span className="title" style={{ flex: 1 }}>
-              {t.title}
-              {t.agentSpec && <span className="spec"> · agent:{t.agentSpec.tool}</span>}
-            </span>
-            <span>
-              {t.tags.map((tag) => <span key={tag} className="tag">{tag}</span>)}
-            </span>
-            {t.status !== "done" && (
-              <button
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  await api(`/api/tasks/${t.id}`, {
-                    method: "PATCH",
-                    body: JSON.stringify({ status: "done" }),
-                  });
-                  await load();
-                }}
-              >done</button>
-            )}
-          </div>
-        ))
-      )}
-
-      {(editing || creating) && (
-        <Editor
-          task={editing}
-          onClose={() => { setEditing(null); setCreating(false); }}
-          onSaved={async () => { setEditing(null); setCreating(false); await load(); }}
-        />
-      )}
-    </div>
-  );
-}
-
-function Editor({ task, onClose, onSaved }: { task: Task | null; onClose: () => void; onSaved: () => void }) {
-  const [title, setTitle] = useState(task?.title ?? "");
-  const [description, setDescription] = useState(task?.description ?? "");
-  const [status, setStatus] = useState<Status>(task?.status ?? "todo");
-  const [priority, setPriority] = useState(task?.priority ?? 0);
-  const [tags, setTags] = useState((task?.tags ?? []).join(", "));
-  const [dueDate, setDueDate] = useState(task?.dueDate ?? "");
-  const [agentSpec, setAgentSpec] = useState(task?.agentSpec ? JSON.stringify(task.agentSpec, null, 2) : "");
-  const [error, setError] = useState<string | null>(null);
-
-  const save = async () => {
-    setError(null);
-    let parsedSpec: AgentSpec | null = null;
-    if (agentSpec.trim()) {
-      try { parsedSpec = JSON.parse(agentSpec); }
-      catch (e) { setError(`agent_spec JSON: ${(e as Error).message}`); return; }
+      if (e.key === "/") {
+        e.preventDefault();
+        document.getElementById("topbar-search")?.focus();
+      } else if (e.key === "c") {
+        e.preventDefault();
+        void createBlank();
+      }
     }
-    const body = {
-      title, description, status, priority: Number(priority),
-      tags: tags.split(",").map((s) => s.trim()).filter(Boolean),
-      dueDate: dueDate || null,
-      agentSpec: parsedSpec,
-    };
+    async function createBlank() {
+      if (!activeListId) return;
+      try {
+        const t = await apiCall<Task>("/api/tasks", {
+          method: "POST",
+          body: JSON.stringify({ listId: activeListId, title: "New task" }),
+        });
+        upsertTask(t);
+        setOpenTaskId(t.id);
+      } catch {
+        toast.error("Create failed");
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [activeListId, upsertTask, setOpenTaskId]);
+
+  async function handleCreate() {
+    if (!activeListId) return;
     try {
-      if (task) await api(`/api/tasks/${task.id}`, { method: "PATCH", body: JSON.stringify(body) });
-      else await api("/api/tasks", { method: "POST", body: JSON.stringify(body) });
-      onSaved();
-    } catch (e) {
-      setError((e as Error).message);
+      const t = await apiCall<Task>("/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({ listId: activeListId, title: "New task" }),
+      });
+      upsertTask(t);
+      setOpenTaskId(t.id);
+    } catch {
+      toast.error("Create failed");
     }
-  };
-
-  const remove = async () => {
-    if (!task) return;
-    if (!confirm(`Delete #${task.id}?`)) return;
-    await api(`/api/tasks/${task.id}`, { method: "DELETE" });
-    onSaved();
-  };
+  }
 
   return (
-    <div className="modal-bg" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2 style={{ margin: 0 }}>{task ? `edit #${task.id}` : "new task"}</h2>
-
-        <label>title</label>
-        <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} />
-
-        <label>description</label>
-        <textarea value={description} onChange={(e) => setDescription(e.target.value)} />
-
-        <div className="row" style={{ gap: 16 }}>
-          <div style={{ flex: 1 }}>
-            <label>status</label>
-            <select value={status} onChange={(e) => setStatus(e.target.value as Status)}>
-              {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+    <div className="h-screen flex bg-background text-foreground">
+      <Sidebar />
+      <main className="flex-1 flex flex-col min-w-0">
+        <TopBar onCreate={handleCreate} />
+        {!bootstrapped ? (
+          <div className="p-4 space-y-2">
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-3/4" />
+            <Skeleton className="h-9 w-2/3" />
           </div>
-          <div style={{ flex: 1 }}>
-            <label>priority</label>
-            <input type="number" value={priority} onChange={(e) => setPriority(Number(e.target.value))} />
+        ) : view === "list" ? (
+          <ListView />
+        ) : view === "board" ? (
+          <BoardView />
+        ) : (
+          <div className="p-8 text-sm text-muted-foreground">
+            Calendar view is a stub — coming soon.
           </div>
-          <div style={{ flex: 1 }}>
-            <label>due date</label>
-            <input type="text" placeholder="YYYY-MM-DD" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-          </div>
-        </div>
-
-        <label>tags (comma-separated)</label>
-        <input type="text" value={tags} onChange={(e) => setTags(e.target.value)} />
-
-        <label>agent_spec (JSON, optional)</label>
-        <textarea
-          placeholder='{"tool":"shell","inputs":{"cmd":"npm test"},"approval_required":true,"success_criteria":"exit 0"}'
-          value={agentSpec}
-          onChange={(e) => setAgentSpec(e.target.value)}
-        />
-
-        {error && <p style={{ color: "#ef476f" }}>{error}</p>}
-
-        <div className="row" style={{ marginTop: 16, justifyContent: "space-between" }}>
-          <div>{task && <button onClick={remove} style={{ color: "#ef476f" }}>delete</button>}</div>
-          <div className="row">
-            <button onClick={onClose}>cancel</button>
-            <button onClick={save}>save</button>
-          </div>
-        </div>
-      </div>
+        )}
+      </main>
+      <TaskDrawer />
     </div>
   );
 }
