@@ -129,13 +129,13 @@ async function main(): Promise<void> {
       const id = Number(positional[0]);
       if (!Number.isFinite(id)) throw new Error("id required");
       const status = flags.status;
-      if (status !== undefined && status !== true && !isStatus(status)) {
+      if (status !== undefined && !isStatus(status)) {
         throw new Error(`bad status: ${status}`);
       }
       const t = updateTask(id, {
         title: typeof flags.title === "string" ? flags.title : undefined,
         description: typeof flags.description === "string" ? flags.description : undefined,
-        status: (status as Status | undefined) ?? undefined,
+        status: isStatus(status) ? status : undefined,
         priority: flags.priority ? Number(flags.priority) : undefined,
         tags: parseTags(flags.tags),
         dueDate: typeof flags.due === "string" ? flags.due : undefined,
